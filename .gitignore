@@ -1,0 +1,33 @@
+# ── Secrets (never commit; use the .env.example templates) ─────────────
+.env
+.env.*
+!.env.example
+
+# ── Biometric data: student face photos and templates ──────────────────
+face-service/faces_db/
+faces_db/
+
+# ── Report drafts (keep private until the report is submitted and marked)
+report/
+REPORT_PREP.md
+
+# ── Dependencies and virtual environments ──────────────────────────────
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# ── Build output (regenerate with npm run build) ───────────────────────
+dist/
+*.tsbuildinfo
+
+# ── Test / evaluation output ───────────────────────────────────────────
+ai-eval-result.json
+
+# ── OS and editor files ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

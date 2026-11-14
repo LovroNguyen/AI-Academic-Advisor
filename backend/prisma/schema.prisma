@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  student
+  admin
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  late
+}
+
+enum MessageSender {
+  user
+  ai
+}
+
+enum MessageMode {
+  career
+  gpa
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(student)
+  createdAt    DateTime @default(now())
+
+  enrollments    Enrollment[]
+  grades         Grade[]
+  attendance     Attendance[]
+  conversations  Conversation[]
+  learningGoal   LearningGoal?
+  createdClasses Class[]        @relation("CreatedBy")
+  quizAttempts   QuizAttempt[]
+}
+
+model Class {
+  id          String @id @default(uuid())
+  name        String
+  subjectCode String
+  creditHours Int
+  semester    String
+  createdBy   String
+
+  creator     User         @relation("CreatedBy", fields: [createdBy], references: [id])
+  enrollments Enrollment[]
+  lessons     Lesson[]
+  grades      Grade[]
+  tests       Test[]
+}
+
+model Enrollment {
+  id         String   @id @default(uuid())
+  studentId  String
+  classId    String
+  enrolledAt DateTime @default(now())
+
+  student User  @relation(fields: [studentId], references: [id])
+  class   Class @relation(fields: [classId], references: [id])
+
+  @@unique([studentId, classId])
+}
+
+model Lesson {
+  id      String   @id @default(uuid())
+  classId String
+  topic   String
+  date    DateTime
+  room    String
+  content String?  // extracted text from uploaded PDF/Word materials
+
+  class      Class        @relation(fields: [classId], references: [id])
+  attendance Attendance[]
+  quizAttempts QuizAttempt[]
+}
+
+model Attendance {
+  id        String           @id @default(uuid())
+  studentId String
+  lessonId  String
+  status    AttendanceStatus @default(present)
+
+  student User   @relation(fields: [studentId], references: [id])
+  lesson  Lesson @relation(fields: [lessonId], references: [id])
+
+  @@unique([studentId, lessonId])
+}
+
+model Grade {
+  id              String   @id @default(uuid())
+  studentId       String
+  classId         String
+  assignmentAvg   Float    @default(0)
+  midterm         Float    @default(0)
+  finalExam       Float    @default(0)
+  gpaContribution Float    @default(0)
+  updatedAt       DateTime @updatedAt
+
+  student User  @relation(fields: [studentId], references: [id])
+  class   Class @relation(fields: [classId], references: [id])
+
+  @@unique([studentId, classId])
+}
+
+model Test {
+  id          String   @id @default(uuid())
+  classId     String
+  title       String
+  scheduledAt DateTime
+  room        String
+  result      Float?
+
+  class Class @relation(fields: [classId], references: [id])
+  quizAttempts QuizAttempt[]
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  studentId String
+  startedAt DateTime @default(now())
+
+  student  User      @relation(fields: [studentId], references: [id])
+  messages Message[]
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  sender         MessageSender
+  content        String
+  mode           MessageMode   @default(career)
+  sentAt         DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+}
+
+model LearningGoal {
+  id           String   @id @default(uuid())
+  studentId    String   @unique
+  goalType     String?
+  targetCareer String?
+  targetGpa    Float?
+  updatedAt    DateTime @updatedAt
+
+  student User @relation(fields: [studentId], references: [id])
+}
+
+model RoadmapChunk {
+  id         String @id @default(uuid())
+  career     String
+  section    String
+  content    String
+  chunkIndex Int
+}
+
+model QuizAttempt {
+  id               String   @id @default(uuid())
+  studentId        String
+  testId           String?
+  lessonId         String?
+  score            Float
+  maxScore         Float    @default(10)
+  mcqCorrect       Int      @default(0)
+  mcqTotal         Int      @default(0)
+  submittedAnswers Json?
+  createdAt        DateTime @default(now())
+
+  student User    @relation(fields: [studentId], references: [id])
+  test    Test?   @relation(fields: [testId], references: [id])
+  lesson  Lesson? @relation(fields: [lessonId], references: [id])
+}
