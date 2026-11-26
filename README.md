@@ -56,7 +56,7 @@ flowchart LR
     C --> D[Load the student's records<br/>grades, attendance, lessons, tests]
     D --> F[Compute facts in code<br/>GPA, rates, marks needed, next class]
     F --> P[Prompt with only<br/>the relevant facts]
-    P --> L{OpenRouter LLM<br/>model cascade + key rotation}
+    P --> L{Claude Haiku 5.5<br/>then free OpenRouter models}
     L -- usable answer --> A[Clean-up and reply]
     L -- no model / limit reached --> R[Rule-based answer<br/>from the same facts]
     R --> A
@@ -65,7 +65,7 @@ flowchart LR
 1. **Intent classification** routes the question to one of six intents: schedule/location, attendance, exam, GPA, career or general. It uses weighted English and Vietnamese keyword rules ([`intent-classifier.ts`](backend/src/ai/intent-classifier.ts)).
 2. **Facts are computed in code** using one shared set of grading rules ([`common/grading.ts`](backend/src/common/grading.ts)). For general questions, matching passages from uploaded lesson material are added ([`lesson-retrieval.ts`](backend/src/ai/lesson-retrieval.ts)).
 3. **The LLM only phrases the facts.** The model receives a short prompt with the relevant data and a format template, never example numbers it could copy.
-4. **Reliability:** free OpenRouter models are tried in turn within a 25-second budget. Up to 9 API keys rotate automatically when one reaches its free daily limit ([`common/openrouter.ts`](backend/src/common/openrouter.ts)). If everything fails, a deterministic rule-based answer is returned, so the chat always works.
+4. **Reliability:** the main provider is Claude Haiku 5.5 through the paid Anthropic API ([`common/claude.ts`](backend/src/common/claude.ts)). If it is not configured or fails, free OpenRouter models are tried in turn, with up to 9 API keys rotating when one reaches its free daily limit ([`common/openrouter.ts`](backend/src/common/openrouter.ts)). All providers share a 25-second budget. If everything fails, a deterministic rule-based answer is returned, so the chat always works.
 
 ---
 
@@ -82,7 +82,7 @@ flowchart TB
         FACE[Face service<br/>FastAPI + OpenCV<br/>127.0.0.1:8001]
         FDB[(faces_db/<br/>templates + photos)]
     end
-    LLM[OpenRouter LLM API]
+    LLM[Claude API<br/>backup: OpenRouter]
 
     UI -- "/api/* (proxy)" --> API
     API --> DB
@@ -102,7 +102,7 @@ flowchart TB
 |---|---|
 | Frontend | React 18, TypeScript, Vite 6, Tailwind CSS 3, React Router 6, Axios |
 | Backend | NestJS 10, TypeScript, Prisma 5, PostgreSQL, JWT (Passport), bcrypt, class-validator, pdf-parse, mammoth |
-| AI | OpenRouter (free models), rule-based fallback |
+| AI | Claude Haiku 5.5 (Anthropic API, `@anthropic-ai/sdk`); free OpenRouter models as backup; rule-based fallback |
 | Face recognition | Python, FastAPI, OpenCV (Haar cascade detection + CLAHE + 400-d region histograms), NumPy, Pillow |
 | Testing | Node.js built-in test runner (unit), integration script, live AI evaluation, face benchmark |
 
@@ -117,7 +117,7 @@ acadai/
 │   ├── src/
 │   │   ├── ai/              chat advisor, intent classifier, lesson retrieval
 │   │   ├── auth/            JWT login, roles, secret guard
-│   │   ├── common/          shared grading rules, OpenRouter client
+│   │   ├── common/          shared grading rules, Claude and OpenRouter clients
 │   │   ├── face/            admin-only proxy to the face service
 │   │   ├── users/           profile, dashboard, early-warning risk engine
 │   │   └── …                classes, lessons, attendance, grades, tests, conversations
@@ -137,7 +137,7 @@ acadai/
 - Node.js 20.12 or newer (the backend uses Node's built-in `.env` loader)
 - PostgreSQL 14+ with an empty database (e.g. `acadai`)
 - Python 3.10+ (only for face attendance)
-- Optional: one or more [OpenRouter](https://openrouter.ai) API keys. Without them, the chat uses its rule-based answers, quizzes come from the question bank, and short answers are not auto-graded.
+- Recommended: a paid [Claude API](https://platform.claude.com) key. Optional backup: one or more free [OpenRouter](https://openrouter.ai) keys. With no AI key, the chat uses its rule-based answers, quizzes come from the question bank, and short answers are not auto-graded.
 
 ### 1. Backend
 ```bash
@@ -194,7 +194,9 @@ cd frontend && npm run build               # static files in frontend/dist
 | `JWT_SECRET` | yes | At least 16 characters; the server refuses to start without it |
 | `JWT_EXPIRES_IN` | no | Token lifetime, default `7d` |
 | `PORT` | no | Default `3000` |
-| `OPENROUTER_API_KEY` | no | Main AI key |
+| `ANTHROPIC_API_KEY` | recommended | Claude API key, the main AI provider |
+| `CLAUDE_MODEL` | no | Default `claude-haiku-5-5` |
+| `OPENROUTER_API_KEY` | no | Backup AI key (free models) |
 | `OPENROUTER_API_KEY_2` … `_9` | no | Backup keys, used in order when a key reaches its free daily limit |
 | `OPENROUTER_MODEL` | no | Default `openrouter/free` |
 | `FACE_SERVICE_URL` | no | Default `http://127.0.0.1:8001` |
@@ -202,7 +204,7 @@ cd frontend && npm run build               # static files in frontend/dist
 
 `face-service/.env` (template: [`face-service/.env.example`](face-service/.env.example)): `FACE_SERVICE_API_KEY` (required), `FACE_SERVICE_HOST` (default `127.0.0.1`), `FACE_ALLOWED_ORIGINS` (normally empty).
 
-> **Free AI tier:** OpenRouter free models allow 50 requests per day per account (1,000 after buying 10 credits) and 20 per minute. One chat message can use several requests. For a live demo, add credits or configure backup keys.
+> **AI cost and limits:** Claude Haiku 5.5 costs $0.10 per million input tokens and $0.50 per million output tokens, roughly $0.0006 per chat answer. Set a monthly spend limit in the Claude Console. The free OpenRouter backup allows 50 requests per day per account (1,000 after buying 10 credits) and 20 per minute, and is often busy.
 
 ---
 
@@ -210,9 +212,9 @@ cd frontend && npm run build               # static files in frontend/dist
 
 | Command | What it checks |
 |---|---|
-| `cd backend && npm run test:unit` | **52 unit tests**, no database needed: grading and GPA rules, intent classifier (33 labelled EN/VI questions), OpenRouter key rotation, quiz validation and scoring, lesson retrieval, rule-based chat answers, JWT secret guard |
+| `cd backend && npm run test:unit` | **60 unit tests**, no database needed: grading and GPA rules, intent classifier (33 labelled EN/VI questions), Claude client configuration, OpenRouter key rotation, quiz validation and scoring, lesson retrieval, rule-based chat answers, JWT secret guard |
 | `cd backend && npm test` | **Integration tests (5)** against the database: connectivity, roles and password hashing, idempotent batch attendance, the real risk engine on real data, face-service health. Restores every record it touches |
-| `cd backend && npm run test:ai-live` | **Live AI evaluation** with the real OpenRouter API (uses quota): 12 questions with fact checks, plus quiz generation and grading |
+| `cd backend && npm run test:ai-live` | **Live AI evaluation** with the real AI provider (Claude, then OpenRouter; uses credit/quota): 12 questions with fact checks, plus quiz generation and grading |
 | `cd face-service && venv\Scripts\python.exe benchmark.py` | Face-service sanity checks and latency |
 
 **Results** (details in [AI_EVALUATION.md](AI_EVALUATION.md)):
@@ -229,7 +231,7 @@ cd frontend && npm run build               # static files in frontend/dist
 - **Secrets:** all secrets come from `.env` files (never committed). The server will not start with a missing or weak JWT secret.
 - **Face service:** admin-only through the backend, with a shared API key, localhost only, and no browser CORS.
 - **Biometric data:** face photos and templates are sensitive personal data under Vietnam's Decree 13/2023/ND-CP. They stay on the institution's server and are never sent to cloud services. Consent, access and deletion rules are in [face-service/README.md](face-service/README.md#biometric-data-and-privacy).
-- **AI and student data:** when an OpenRouter key is configured, the relevant academic facts (e.g. grades, attendance) are sent to the AI provider to phrase the answer. Use a self-hosted model if this is not acceptable for your institution.
+- **AI and student data:** when an AI key is configured, the relevant academic facts (e.g. grades, attendance) are sent to the AI provider (Anthropic, or OpenRouter as backup) to phrase the answer. Use a self-hosted model if this is not acceptable for your institution.
 - **Practice quizzes:** correct answers are sent to the browser only after the quiz is submitted.
 
 ---

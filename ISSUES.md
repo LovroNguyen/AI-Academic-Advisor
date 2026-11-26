@@ -78,6 +78,14 @@ Priority: **P1** fix before the report/demo · **P2** should fix · **P3** nice 
 - [x] **#40 (final check, fixed) The integration test changed real data and tested a copy of the code.** Test 3 overwrote 3 real attendance records with "present" on every run, and test 4 checked a private copy of an old risk formula instead of the app's code. *Fixed:* test 3 snapshots and restores everything it touches (a fingerprint of the database was identical before and after), and test 4 now runs the real risk engine on 15 real students and checks the results are consistent. 5/5 pass.
 - [x] **#41 (final check, fixed) Two different GPA numbers.** The Grades page showed 2.75 for the demo student while the dashboard and chat showed 2.20: one averaged only current enrollments, the other all recorded grades (the student has a failed DevOps grade from a course they are no longer enrolled in). *Fixed:* one shared `cumulativeGpa()` in `common/grading.ts` (all recorded grades, so a failed course cannot disappear by unenrolling), used by the profile, dashboard, chat and grades services. The Grades page lists such courses marked "not enrolled; counts toward GPA". If the university counts only current enrollments, change that one function.
 - [x] **#33 (new, fixed) Backend never loaded `.env` itself.** It relied on Prisma loading it as a side effect. *Fixed:* `src/env.ts` loads it explicitly as the first import in `main.ts`.
+- [x] **#42 (found while taking report screenshots, fixed) Chat history could show an answer above its question.** A question and its answer were saved in one transaction, so both got the same `sentAt` (database `CURRENT_TIMESTAMP` is the transaction start time); every pair in the database had identical timestamps. After a reload the order was arbitrary, and the last 6 messages sent to the language model as context could also be out of order. *Fixed:* `common/message-order.ts` stamps the answer 1 ms after the question, and every message query (`ai.service.ts` history, `conversations.service.ts` list and messages) sorts ties by sender (enum order `user` before `ai`), which also corrects older rows. The two duplicated save blocks in `ai.service.ts` became one `saveExchange()`.
+- [ ] **#43 (found while taking report screenshots) Lesson room codes do not match campus-map names.** Lessons use codes like "B201", the map uses "Room 201". Asked "Where is my next class?", the model answered "Room B201 is not on Level 2" and added unrelated map buttons (WC, Elevator Shaft). Fix: map room codes to map locations in one place and give the LOCATOR prompt the resolved map name.
+- [ ] **#44 (found while taking report screenshots) Admin Attendance page mixes views.** For an administrator the summary cards show the admin's own (empty) attendance ("No sessions recorded yet"), while every session row shows "Present". The cards should show class-level figures for admins.
+- [ ] **#45 (found while taking report screenshots) Seed data has attendance in the future.** The demo student has absences and late arrivals dated after today (e.g. 24 Nov), which the advisor then lists as "recent absences". Seed attendance only for lessons before the seed date.
+- [x] **#46 (found while recording the demo video, fixed) Lesson PDF upload always failed.** Uploading a PDF showed "Extraction failed: pdfParse is not a function". `pdf-parse` 2.x replaced v1's default function with a `PDFParse` class, so the v1-style call in `lessons.service.ts` broke; DOCX and TXT uploads were unaffected. Because no lesson material had been uploaded before, the quiz generator and chat retrieval had never received PDF text. *Fixed:* `extractPdf()` now uses `new PDFParse({ data }).getText()` and calls `destroy()` afterwards.
+- [x] **#47 (found while recording the demo video, fixed) Admin portal jumped back to the first class after every change.** `loadData()` in `AdminPage.tsx` reset the selected class (enrolment, lessons, grades, exams) and the grade-entry student to the first item on every reload. So after enrolling a student, the enrolment list switched to another class, and the student seemed to vanish. *Fixed:* a reload keeps the current selection while it still exists.
+- [x] **#48 (found while recording the demo video, fixed) The floating chat bubble showed raw Markdown.** AI answers in the bubble were printed as plain text, so tables appeared as rows of `|` characters and bold text as `**…**`; only the full chat page rendered them. *Fixed:* the renderer moved from `ChatPage.tsx` into `components/MessageContent.tsx` (`formatMessage`), which both the chat page and `FloatingChatBubble.tsx` now use.
+- [x] **#49 (found while recording the demo video, fixed) Free AI models were too unreliable for a live demo.** The free OpenRouter models were often busy or rate-limited. During recordings, quizzes fell back to the fixed question bank, and short answers were left "not auto-graded". *Fixed:* Claude Haiku 5.5 is now the main provider, through the paid Anthropic API (`common/claude.ts`, official TypeScript SDK). It is used for chat answers, quiz generation and short-answer grading, with OpenRouter kept as the backup and the rule-based answers as the last resort. Cost is about $0.0006 per chat answer. The key lives only in `backend/.env`, and a Console spend limit caps the cost if it leaks.
 
 ## Fix log
 
@@ -131,4 +139,21 @@ Priority: **P1** fix before the report/demo · **P2** should fix · **P3** nice 
 - Code scan clean: no leftover fake defaults, duplicated formulas, direct face-service URLs or debug logging.
 - Production start verified.
 - Still open: see the unticked items above. The main ones are #4 (rotate keys), #22/#25 (face model and real accuracy test), #14 (missing roadmaps), #34 (hard-coded "Semester 5"), and the P3 cleanup.
+
+**Pass 6: chat message order** (#42; #43–#45 logged, not fixed)
+- Backend `tsc --noEmit`: pass. `npm run test:unit`: 56/56 (4 new tests in `message-order.test.ts`).
+- Live API check on the demo student's conversation: 231 existing messages return in strict question/answer order (0 answer-before-question pairs); a new question and answer were saved 1 ms apart.
+- Browser: after a reload, the chat page shows each question above its answer.
+
+**Pass 7: demo video** (#46, #47, #48)
+- Backend and frontend `tsc --noEmit`: pass. `npm run test:unit`: 56/56.
+- Live check: a 1-page PDF uploaded through the admin portal reports "798 chars extracted".
+- The scripted demo recording ran every admin step (create class and lesson, upload, enrol, grade, schedule exam) without the selection jumping.
+
+**Pass 8: Claude as the main AI provider** (#49)
+- Backend `tsc --noEmit`: pass. `npm run test:unit`: 60/60 (4 new tests in `claude.test.ts`).
+- Live check against the real API (demo student):
+  - Three chat questions (risk, Vietnamese final-mark question, next exam): answered by Claude in 2.2–3.8 s, with facts matching the records and no fallback.
+  - Quiz generation: 10 questions written from the DSA202 lessons (`source: ai`) in 6.5–7.8 s.
+  - Grading: both short answers were scored, with specific feedback, in 1.2–1.5 s.
 

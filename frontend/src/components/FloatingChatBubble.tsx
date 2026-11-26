@@ -15,6 +15,7 @@ import {
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { extractCampusRooms } from '../utils/roomDetector';
+import { formatMessage } from './MessageContent';
 
 interface BubbleMessage {
   sender: 'user' | 'ai';
@@ -165,10 +166,11 @@ export const FloatingChatBubble: React.FC = () => {
                   className={`max-w-[82%] px-3.5 py-2.5 rounded-2xl leading-relaxed ${
                     m.sender === 'user'
                       ? 'bg-slate-900 text-white rounded-br-none shadow-sm'
-                      : 'bg-white text-slate-800 border border-slate-200/80 rounded-bl-none shadow-sm whitespace-pre-line'
+                      : 'bg-white text-slate-800 border border-slate-200/80 rounded-bl-none shadow-sm'
                   }`}
                 >
-                  <div>{m.content}</div>
+                  {/* AI answers are Markdown (bold, tables): render them like the full chat page */}
+                  <div>{m.sender === 'ai' ? formatMessage(m.content) : m.content}</div>
 
                   {/* Room Location Quick Buttons */}
                   {m.sender === 'ai' && (() => {

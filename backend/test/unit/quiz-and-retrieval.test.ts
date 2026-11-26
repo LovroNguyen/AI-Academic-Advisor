@@ -28,8 +28,10 @@ test('quiz validation rejects too few valid questions and non-arrays', () => {
 });
 
 test('submit: MCQ scoring, empty short answer gets 0 without calling the LLM', async () => {
-  // no network in unit tests: remove every configured key
-  const saved = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('OPENROUTER_API_KEY')));
+  // no network in unit tests: remove every configured AI key (Claude and OpenRouter)
+  const saved = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => k.startsWith('OPENROUTER_API_KEY') || k === 'ANTHROPIC_API_KEY'),
+  );
   for (const k of Object.keys(saved)) delete process.env[k];
   try {
     const questions = [

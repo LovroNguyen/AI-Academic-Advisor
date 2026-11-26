@@ -76,11 +76,16 @@ export const AdminPage: React.FC = () => {
     try {
       const [cr, tr, sr] = await Promise.all([api.get('/classes'), api.get('/tests'), api.get('/users/students')]);
       setClasses(cr.data); setTests(tr.data); setAllStudents(sr.data);
+      // Keep the admin's current selections after a reload (e.g. after enrolling a student);
+      // fall back to the first class/student only when nothing valid is selected.
       if (cr.data.length > 0) {
-        const id = cr.data[0].id;
-        setSelectedClassId(id); setLessonClassId(id); setGradeClassId(id); setTestClassId(id);
+        const first = cr.data[0].id;
+        const keep = (prev: string) => (prev && cr.data.some((c: any) => c.id === prev) ? prev : first);
+        setSelectedClassId(keep); setLessonClassId(keep); setGradeClassId(keep); setTestClassId(keep);
       }
-      if (sr.data.length > 0) setGradeStudentId(sr.data[0].id);
+      if (sr.data.length > 0) {
+        setGradeStudentId((prev: string) => (prev && sr.data.some((s: any) => s.id === prev) ? prev : sr.data[0].id));
+      }
     } catch (e) { console.error(e); } finally { setLoading(false); }
   }, []);
 

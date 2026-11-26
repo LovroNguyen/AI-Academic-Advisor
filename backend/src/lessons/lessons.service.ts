@@ -137,9 +137,15 @@ export class LessonsService {
 
   private async extractPdf(buffer: Buffer): Promise<string> {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pdfParse = require('pdf-parse');
-    const result = await pdfParse(buffer);
-    return result.text || '';
+    // pdf-parse v2 exports a PDFParse class (v1's default function no longer exists).
+    const { PDFParse } = require('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      return result.text || '';
+    } finally {
+      await parser.destroy();
+    }
   }
 
   private async extractDocx(buffer: Buffer): Promise<string> {

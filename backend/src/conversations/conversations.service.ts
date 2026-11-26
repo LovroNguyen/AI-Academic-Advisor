@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CHRONOLOGICAL, NEWEST_FIRST } from '../common/message-order';
 
 @Injectable()
 export class ConversationsService {
@@ -21,7 +22,7 @@ export class ConversationsService {
       where: { studentId },
       include: {
         messages: {
-          orderBy: { sentAt: 'desc' },
+          orderBy: NEWEST_FIRST,
           take: 1,
         },
         _count: {
@@ -37,7 +38,7 @@ export class ConversationsService {
       where: { id: conversationId, studentId },
       include: {
         messages: {
-          orderBy: { sentAt: 'asc' },
+          orderBy: CHRONOLOGICAL,
         },
       },
     });

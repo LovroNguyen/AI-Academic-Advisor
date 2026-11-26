@@ -1,6 +1,6 @@
 # AcadAI — Live AI Evaluation (2026-11-11)
 
-Results of testing the AI features against the real OpenRouter API (free tier, `openrouter/free` model router) with the seeded demo student (`nva@fpt.edu.vn`). Reproduce with `cd backend && npm run test:ai-live` (uses about 15–30 API requests per run).
+Results of testing the AI features with the seeded demo student (`nva@fpt.edu.vn`). Rounds 1–3 used the real OpenRouter API (free tier, `openrouter/free` model router); rounds 4–6 (2026-11-25) used Claude Haiku 5.5, the current main provider. Reproduce with `cd backend && npm run test:ai-live` (uses about 15–30 API requests per run).
 
 ## Method
 
@@ -40,9 +40,33 @@ Results of testing the AI features against the real OpenRouter API (free tier, `
 - **Latency** is usually 1–8 s, with occasional outliers of about 20 s when the first model in the cascade fails.
 - **Free-tier limits:** the daily free-request cap was hit during testing. The backend now rotates across 3 account keys and falls back to built-in answers when all are used up.
 
+## Rounds 4–6: Claude Haiku 5.5 as the main provider (2026-11-25)
+
+The free models were too unreliable for a live demo: they were often busy, and quizzes then fell back to the question bank (ISSUES #49). So Claude Haiku 5.5, through the paid Anthropic API, became the main provider, with OpenRouter kept as the backup. The same 12 questions and quiz check were run three more times. Two changes were made to the script:
+- **Date facts:** the expected next exam and next class are now read from the database at run time. The original values (next exam on Nov 13) were in the past by then.
+- **Provider:** the script now records which provider answered each question.
+
+| | Round 4 | Round 5 | Round 6 |
+|---|---|---|---|
+| Answered by Claude (no fallback) | 12/12 | 12/12 | 12/12 |
+| Correct intent | 12/12 | 12/12 | 12/12 |
+| All required facts present and correct | 12/12‡ | 12/12‡ | 12/12 |
+| Answers with invented course codes | 0 | 0 | 0 |
+| Median / max chat response time | 1.5 s / 2.9 s | 1.8 s / 2.6 s | 1.6 s / 3.6 s |
+| Quiz generation | AI, 7.2 s | AI, 7.3 s | AI, 6.4 s |
+| Short-answer grading (correct / wrong answer) | 1 / 0 | 1 / 0 | 1 / 0 |
+
+‡ The automatic check flagged "What is my next class?" in rounds 4–5. Manual review showed Claude was right: the expected value was that morning's class, which was already over. The check was fixed to use the first class that has not started yet, and round 6 passed.
+
+**Findings:**
+- **Reliable:** all 36 answers came from Claude, with no fallback, no wrong facts and no invented course codes.
+- **Faster:** median chat time fell from about 3–4 s to under 2 s, and the worst case from about 22 s to under 4 s.
+- **Quiz features now work every time:** quizzes were written from the lessons every time, and grading separated the correct from the wrong short answer in every round. With the free models, one round produced no short questions at all.
+- **Cost:** about 2 cents for all three rounds.
+
 ## Limitations of this evaluation
 
-- **Small sample:** 12 questions, 3 runs, one student. Not statistically strong.
-- **Non-deterministic:** the free router picks different models, so results vary between runs.
+- **Small sample:** 12 questions, 6 runs, one student. Not statistically strong.
+- **Non-deterministic:** the free router picks different models, so results vary between runs. Claude runs were more consistent, but language models are still not deterministic.
 - **Lenient fact checks:** answers are matched against expected values with regular expressions, which can miss wrong statements that still contain the right numbers (one false alarm was found by manual review). Phrasing quality was not scored.
 - **No uploaded lesson material:** none exists in the database, so lesson-material answers (retrieval) were not evaluated live, only by unit tests.

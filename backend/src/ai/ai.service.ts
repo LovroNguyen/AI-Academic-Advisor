@@ -36,6 +36,8 @@ function careerMatches(roadmapCareer: string, targetCareer: string): boolean {
 import { AgentIntent, classifyIntent } from './intent-classifier';
 import { retrieveLessonSnippets } from './lesson-retrieval';
 import { hasOpenRouterKey, isDailyLimitError, openRouterChat } from '../common/openrouter';
+import { claudeChat, claudeModel, hasClaudeKey } from '../common/claude';
+import { NEWEST_FIRST, pairTimestamps } from '../common/message-order';
 
 export type { AgentIntent };
 
@@ -93,7 +95,7 @@ export class AiService {
     const chatHistory = (
       await this.prisma.message.findMany({
         where: { conversationId: activeConversationId },
-        orderBy: { sentAt: 'desc' },
+        orderBy: NEWEST_FIRST,
         take: 6,
         select: { sender: true, content: true },
       })
@@ -108,24 +110,7 @@ export class AiService {
     const cached = this.queryCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 60000) {
       this.logger.log(`Serving query from fast in-memory cache: ${cacheKey}`);
-      await this.prisma.$transaction([
-        this.prisma.message.create({
-          data: {
-            conversationId: activeConversationId,
-            sender: 'user',
-            content: message,
-            mode: dbMode,
-          },
-        }),
-        this.prisma.message.create({
-          data: {
-            conversationId: activeConversationId,
-            sender: 'ai',
-            content: cached.response,
-            mode: dbMode,
-          },
-        }),
-      ]);
+      await this.saveExchange(activeConversationId, message, cached.response, dbMode);
 
       return {
         conversationId: activeConversationId,
@@ -304,24 +289,7 @@ export class AiService {
     });
 
     // 7. Save message history
-    await this.prisma.$transaction([
-      this.prisma.message.create({
-        data: {
-          conversationId: activeConversationId,
-          sender: 'user',
-          content: message,
-          mode: dbMode,
-        },
-      }),
-      this.prisma.message.create({
-        data: {
-          conversationId: activeConversationId,
-          sender: 'ai',
-          content: aiResponseText,
-          mode: dbMode,
-        },
-      }),
-    ]);
+    await this.saveExchange(activeConversationId, message, aiResponseText, dbMode);
 
     return {
       conversationId: activeConversationId,
@@ -329,6 +297,22 @@ export class AiService {
       intent,
       response: aiResponseText,
     };
+  }
+
+  /**
+   * Saves a question and its answer in one transaction. The answer is stamped 1 ms after the
+   * question so the pair always reloads in the right order (see common/message-order.ts).
+   */
+  private async saveExchange(conversationId: string, question: string, answer: string, mode: MessageMode) {
+    const { questionAt, answerAt } = pairTimestamps();
+    await this.prisma.$transaction([
+      this.prisma.message.create({
+        data: { conversationId, sender: 'user', content: question, mode, sentAt: questionAt },
+      }),
+      this.prisma.message.create({
+        data: { conversationId, sender: 'ai', content: answer, mode, sentAt: answerAt },
+      }),
+    ]);
   }
 
   /**
@@ -688,8 +672,18 @@ Respond following BLUF and Zero-Fluff rules. Answer directly in sentence 1.`;
     return clean;
   }
 
+  /** Rejects answers that are too short, look like a safety/refusal stub, or claim the data is missing. */
+  private isUsableAnswer(cleanContent: string): boolean {
+    return !(
+      cleanContent.length < 25 ||
+      /^(user safety|safe|unsafe|refusal|ok)/i.test(cleanContent) ||
+      cleanContent.toLowerCase().includes('user safety:') ||
+      /\b(không có dữ liệu|hiện chưa được cung cấp|chưa có thông tin|chưa có phân tích|không tìm thấy thông tin|không được đề cập|i do not have access|not found in the provided data)\b/i.test(cleanContent)
+    );
+  }
+
   /**
-   * OpenRouter LLM Caller with Zero-Fluff Fallback & Model Router Cascade
+   * LLM caller. Order: Claude (paid, main provider) -> free OpenRouter models -> built-in answer.
    */
   private async callLlm(
     systemPrompt: string,
@@ -699,6 +693,25 @@ Respond following BLUF and Zero-Fluff rules. Answer directly in sentence 1.`;
     rawMessage: string,
     contextData: any,
   ): Promise<string> {
+    // Overall time budget for every provider together, so a slow model cannot block the chat.
+    const deadline = Date.now() + 25000;
+
+    if (hasClaudeKey()) {
+      const result = await claudeChat({
+        system: systemPrompt,
+        user: userPrompt,
+        maxTokens: 4096,
+        timeoutMs: 18000,
+      });
+      if (result.ok && result.content) {
+        const cleanContent = this.sanitizeAndCleanOutput(result.content);
+        if (this.isUsableAnswer(cleanContent)) return cleanContent;
+        this.logger.warn(`Claude (${claudeModel()}) returned an unusable answer; trying OpenRouter.`);
+      } else {
+        this.logger.warn(`Claude (${claudeModel()}) failed (${result.status || 'network'}: ${result.error}); trying OpenRouter.`);
+      }
+    }
+
     if (hasOpenRouterKey()) {
       const configuredModel = process.env.OPENROUTER_MODEL || 'openrouter/free';
       const candidateModels = Array.from(
@@ -709,9 +722,6 @@ Respond following BLUF and Zero-Fluff rules. Answer directly in sentence 1.`;
           'openrouter/free',
         ]),
       );
-
-      // Overall time budget for the whole cascade, so a slow free model cannot block the chat.
-      const deadline = Date.now() + 25000;
 
       for (const m of candidateModels) {
         const remaining = deadline - Date.now();
@@ -738,13 +748,7 @@ Respond following BLUF and Zero-Fluff rules. Answer directly in sentence 1.`;
           if (result.ok) {
             if (result.content) {
               const cleanContent = this.sanitizeAndCleanOutput(result.content);
-              const isInvalidOrGuardrail =
-                cleanContent.length < 25 ||
-                /^(user safety|safe|unsafe|refusal|ok)/i.test(cleanContent) ||
-                cleanContent.toLowerCase().includes('user safety:') ||
-                /\b(không có dữ liệu|hiện chưa được cung cấp|chưa có thông tin|chưa có phân tích|không tìm thấy thông tin|không được đề cập|i do not have access|not found in the provided data)\b/i.test(cleanContent);
-
-              if (!isInvalidOrGuardrail) {
+              if (this.isUsableAnswer(cleanContent)) {
                 return cleanContent;
               }
               this.logger.warn(`OpenRouter call (${result.servedBy || m}) returned an unusable answer; trying next model.`);
