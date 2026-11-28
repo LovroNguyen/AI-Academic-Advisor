@@ -133,6 +133,13 @@ acadai/
 
 ## Getting started
 
+### Quick start (Windows)
+1. Install [Node.js](https://nodejs.org) 20.12+, [PostgreSQL](https://www.postgresql.org/download/) 14+ and, for face attendance, [Python](https://www.python.org) 3.10+.
+2. Double-click **`setup.bat`** once. It asks for your PostgreSQL password, then installs everything, writes the `.env` files with new random secrets, creates the database and loads the demo data.
+3. Double-click **`start.bat`**. It starts the three services and opens http://localhost:5173.
+
+Log in with the quick-fill buttons on the login page (administrator `admin@fpt.edu.vn` / `admin123`, student `nva@fpt.edu.vn` / `password`). No API key is included: without one, the AI advisor gives its built-in rule-based answers. For AI answers, paste a Claude API key into `ANTHROPIC_API_KEY` in `backend/.env` and restart the backend. On macOS or Linux, run `node setup.mjs` and then follow the manual steps below.
+
 ### Prerequisites
 - Node.js 20.12 or newer (the backend uses Node's built-in `.env` loader)
 - PostgreSQL 14+ with an empty database (e.g. `acadai`)
